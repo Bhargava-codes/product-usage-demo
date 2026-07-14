@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Customer Health</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Albert+Sans:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<style>
+  :root{
+    --ss-lucid:#6F39F5; --ss-lucid-dark:#5A2DDB; --ss-darkmatter:#191132;
+    --ss-fg:#191132; --ss-fg-muted:#5A5172; --ss-fg-subtle:#6E6688;
+    --ss-border:#E6E1F5; --ss-pale-lucid-tint:#EFE9FF; --ss-bg:#FBFAFE;
+    --ss-pale-orange:#FFA378;
+    --ss-success:#1F8A5B; --ss-warning:#B7791F; --ss-danger:#C8453B;
+    --ss-font:'Albert Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+    --ss-shadow-sm:0 1px 2px rgba(25,17,50,.06);
+    --ss-shadow-lg:0 20px 50px rgba(25,17,50,.12);
+    --ss-shadow-purple:0 12px 32px rgba(111,57,245,.28);
+    --ss-dur-fast:120ms; --ss-ease-out:cubic-bezier(0.16,1,0.3,1);
+  }
+  *{box-sizing:border-box;}
+  html,body,#root{height:100%;margin:0;}
+  body{font-family:var(--ss-font);color:var(--ss-fg);background:var(--ss-bg);-webkit-font-smoothing:antialiased;}
+  .ss-eyebrow{text-transform:uppercase;font-size:12px;font-weight:600;color:var(--ss-lucid);letter-spacing:.04em;}
+  .ss-caption{font-size:14px;color:var(--ss-fg-muted);}
+  h1,h3{letter-spacing:-.02em;}
+  .ss-on-dark,.ss-on-dark *{color:#fff;}
+  ::-webkit-scrollbar{width:10px;height:10px;}
+  ::-webkit-scrollbar-thumb{background:#d9d3ee;border-radius:999px;border:2px solid #fff;}
+  .cell-btn:hover{filter:brightness(0.97);}
+  .acct-row:hover{background:var(--ss-pale-lucid-tint)!important;}
+  .lin:hover{opacity:.75;}
+  .tchip:hover{border-color:var(--ss-lucid)!important;}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--ss-lucid)!important;box-shadow:0 0 0 3px rgba(111,57,245,.14);}
+  button{font-family:var(--ss-font);}
+  @keyframes ss-in{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+  @keyframes ss-slide{from{transform:translateX(24px);opacity:0;}to{transform:none;opacity:1;}}
+  @keyframes ss-blink{0%,80%,100%{opacity:.25;}40%{opacity:1;}}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/jsx-source" id="app-source">
+const {useState, useEffect, useCallback} = React;
+const API = "/api";
+
+const RAG   = {green:'#1F8A5B', amber:'#B7791F', red:'#C8453B'};
+const RAGT  = {green:'rgba(31,138,91,.12)', amber:'rgba(183,121,31,.12)', red:'rgba(200,69,59,.12)'};
+const RAGLBL= {green:'Green', amber:'Amber', red:'Red'};
+const SENT_BG = {Positive:RAGT.green, Neutral:RAGT.amber, Negative:RAGT.red};
+const SENT_FG = {Positive:RAG.green, Neutral:RAG.amber, Negative:RAG.red};
+const SENT_ARROW = {up:'▲', flat:'▬', down:'▼'};
+const TYPE_ICON = {
+  usage:{icon:'activity',c:'amber'}, support:{icon:'life-buoy',c:'red'},
+  sales:{icon:'briefcase',c:'green'}, survey:{icon:'gauge',c:'amber'},
+  billing:{icon:'credit-card',c:'red'}, relationship:{icon:'users',c:'red'},
+  onboarding:{icon:'flag',c:'green'}, advocacy:{icon:'star',c:'green'}
+};
+const TYPE_LABEL = {all:'All',usage:'Usage',support:'Support',sales:'Sales',survey:'Surveys',
+  billing:'Billing',relationship:'Relationship',onboarding:'Onboarding',advocacy:'Advocacy'};
+const npsColor = n => n>=40?RAG.green:n>=10?RAG.amber:RAG.red;
+
+const get = (u) => fetch(API+u).then(r=>r.json());
+
+function useIcons(dep){
+  useEffect(()=>{ if(window.lucide){ try{window.lucide.createIcons();}catch(e){} } });
+}
+
+// ---------- MoM chart ----------
+function TrendChart({trend}){
+  if(!trend || !trend.points.length) return null;
+  const vals = trend.points.map(p=>p.score);
+  const W=520,H=170,PT=14,PB=16,PL=6,PR=6;
+  const min=Math.min(...vals)-6, max=Math.max(...vals)+6, span=Math.max(1,max-min);
+  const x=i=>PL+(W-PL-PR)*(i/(vals.length-1));
+  const y=v=>PT+(H-PT-PB)*(1-(v-min)/span);
+  const color=RAG[trend.band];
+  const pts=vals.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+  const area=`M ${x(0).toFixed(1)},${(H-PB).toFixed(1)} L `+vals.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' L ')+` L ${x(vals.length-1).toFixed(1)},${(H-PB).toFixed(1)} Z`;
+  return (
+    <React.Fragment>
+      <svg viewBox="0 0 520 170" style={{width:'100%',height:'auto',display:'block',overflow:'visible'}}>
+        {[42,86,130].map(gy=><line key={gy} x1="0" y1={gy} x2="520" y2={gy} stroke="var(--ss-border)" strokeWidth="1"/>)}
+        <path d={area} fill={color} opacity="0.10"/>
+        <polyline points={pts} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round"/>
+        {vals.map((v,i)=><circle key={i} cx={x(i).toFixed(1)} cy={y(v).toFixed(1)} r="3.5" fill="#fff" stroke={color} strokeWidth="2.5"/>)}
+      </svg>
+      <div style={{display:'flex',justifyContent:'space-between',marginTop:8}}>
+        {trend.points.map((p,i)=><span key={i} style={{fontSize:11,color:'var(--ss-fg-subtle)'}}>{p.label}</span>)}
+      </div>
+    </React.Fragment>
+  );
+}
+
+// ---------- Portfolio ----------
+function Portfolio({data, filters, state, setState, trend, openAccount}){
+  useIcons();
+  const {am, manager, query, moduleFilter} = state;
+  const modName={payroll:'Payroll',workforce:'Workforce',ee:'Employee experience'};
+  let rows = data.accounts;
+  if(moduleFilter) rows = rows.filter(a=>a.modules[moduleFilter.key]===moduleFilter.status);
+
+  return (
+    <div style={{flex:1,overflowY:'auto'}}>
+      <div style={{padding:'26px 34px 0'}}>
+        <div className="ss-eyebrow" style={{marginBottom:6}}>Account portfolio</div>
+        <div style={{display:'flex',alignItems:'flex-end',justifyContent:'space-between',gap:16,flexWrap:'wrap'}}>
+          <div>
+            <h1 style={{fontSize:32,margin:'0 0 4px',fontWeight:800}}>Customer Health</h1>
+            <div className="ss-caption">{data.count} accounts · near real-time health across your book of business</div>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:8,background:'#fff',border:'1px solid var(--ss-border)',borderRadius:8,padding:'8px 12px'}}>
+            <i data-lucide="search" style={{width:16,height:16,color:'var(--ss-fg-subtle)'}}></i>
+            <input value={query} onChange={e=>setState({query:e.target.value})} placeholder="Search accounts"
+              style={{border:'none',fontFamily:'var(--ss-font)',fontSize:14,width:150,background:'transparent',color:'var(--ss-fg)'}}/>
+          </div>
+        </div>
+      </div>
+
+      {/* filters */}
+      <div style={{padding:'18px 34px 0',display:'flex',gap:14,flexWrap:'wrap',alignItems:'center'}}>
+        <label style={{display:'flex',flexDirection:'column',gap:5}}>
+          <span style={lblStyle}>Account Manager</span>
+          <select value={am} onChange={e=>setState({am:e.target.value})} style={selStyle}>
+            <option value="all">All AMs</option>
+            {filters.ams.map(a=><option key={a} value={a}>{a}</option>)}
+          </select>
+        </label>
+        <label style={{display:'flex',flexDirection:'column',gap:5}}>
+          <span style={lblStyle}>Manager</span>
+          <select value={manager} onChange={e=>setState({manager:e.target.value})} style={selStyle}>
+            <option value="all">All managers</option>
+            {filters.managers.map(m=><option key={m} value={m}>{m}</option>)}
+          </select>
+        </label>
+        {moduleFilter &&
+          <div style={{alignSelf:'flex-end',display:'flex',alignItems:'center',gap:8,background:'var(--ss-pale-lucid-tint)',border:'1px solid var(--ss-border)',borderRadius:999,padding:'7px 8px 7px 14px'}}>
+            <span style={{fontSize:13,fontWeight:600}}>{modName[moduleFilter.key]}: {RAGLBL[moduleFilter.status]}</span>
+            <button onClick={()=>setState({moduleFilter:null})} className="lin" style={{border:'none',background:'#fff',cursor:'pointer',width:22,height:22,borderRadius:999,display:'flex',alignItems:'center',justifyContent:'center',color:'var(--ss-fg-muted)'}}><i data-lucide="x" style={{width:13,height:13}}></i></button>
+          </div>}
+      </div>
+
+      {/* summary + graph */}
+      <div style={{padding:'20px 34px 0',display:'grid',gridTemplateColumns:'1.05fr 1fr',gap:22}}>
+        <div style={cardStyle}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+            <h3 style={{fontSize:16,margin:0}}>Module health across book</h3>
+            <span className="ss-caption" style={{fontSize:12}}>Click a cell to filter</span>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1.3fr 1fr 1fr 1fr',gap:8,alignItems:'center'}}>
+            <div></div>
+            <div style={{...matHdr,color:RAG.red}}>Red</div>
+            <div style={{...matHdr,color:RAG.amber}}>Amber</div>
+            <div style={{...matHdr,color:RAG.green}}>Green</div>
+            {data.matrix.map(r=>(
+              <React.Fragment key={r.key}>
+                <div style={{fontWeight:600,fontSize:14}}>{r.name}</div>
+                {['red','amber','green'].map(st=>(
+                  <button key={st} onClick={()=>setState({moduleFilter:{key:r.key,status:st}})} className="cell-btn"
+                    style={{cursor:'pointer',border:'1px solid var(--ss-border)',background:RAGT[st],color:RAG[st],borderRadius:8,padding:'14px 0',fontFamily:'var(--ss-font)',fontWeight:800,fontSize:20}}>{r[st]}</button>
+                ))}
+              </React.Fragment>
+            ))}
+          </div>
+        </div>
+        <div style={cardStyle}>
+          <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:4}}>
+            <div>
+              <h3 style={{fontSize:16,margin:'0 0 2px'}}>Health score · month-over-month</h3>
+              <div className="ss-caption" style={{fontSize:12}}>{trend.name} <span style={{color:'var(--ss-fg-subtle)'}}>· click a row to change</span></div>
+            </div>
+            {trend.data && <div style={{textAlign:'right'}}>
+              <div style={{fontWeight:800,fontSize:28,lineHeight:1,color:RAG[trend.data.band]}}>{trend.data.current}</div>
+              <div style={{fontSize:12,fontWeight:600,color:trend.data.delta>=0?RAG.green:RAG.red}}>{(trend.data.delta>=0?'+':'')+trend.data.delta} vs 8 mo ago</div>
+            </div>}
+          </div>
+          <TrendChart trend={trend.data}/>
+        </div>
+      </div>
+
+      {/* accounts table */}
+      <div style={{padding:'22px 34px 40px'}}>
+        <div style={{...cardStyle,padding:0,overflow:'hidden'}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 22px',borderBottom:'1px solid var(--ss-border)'}}>
+            <h3 style={{fontSize:16,margin:0}}>Accounts <span style={{color:'var(--ss-fg-subtle)',fontWeight:600}}>· {rows.length}</span></h3>
+            <div style={{display:'flex',gap:16,alignItems:'center',fontSize:11,color:'var(--ss-fg-subtle)'}}>
+              {['green','amber','red'].map(c=><span key={c} style={{display:'flex',alignItems:'center',gap:5}}><span style={{width:9,height:9,borderRadius:999,background:RAG[c]}}></span>{RAGLBL[c]}</span>)}
+            </div>
+          </div>
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:14,minWidth:960}}>
+              <thead>
+                <tr style={{textAlign:'left',color:'var(--ss-fg-subtle)',fontSize:11,textTransform:'uppercase',letterSpacing:'.04em'}}>
+                  <th style={{padding:'11px 22px',fontWeight:700}}>Account</th>
+                  <th style={{padding:'11px 12px',fontWeight:700}}>Health</th>
+                  <th style={{padding:'11px 12px',fontWeight:700}}>Support sentiment</th>
+                  {['Payroll','Workforce','Emp. experience'].map(h=><th key={h} style={{padding:'11px 8px',fontWeight:700,textAlign:'center'}}>{h}</th>)}
+                  <th style={{padding:'11px 12px',fontWeight:700,textAlign:'center'}}>NPS</th>
+                  <th style={{padding:'11px 12px',fontWeight:700,textAlign:'center'}}>CSAT</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(a=>(
+                  <tr key={a.id} className="acct-row" onClick={()=>openAccount(a.id)} style={{borderTop:'1px solid var(--ss-border)',cursor:'pointer'}}>
+                    <td style={{padding:'14px 22px'}}>
+                      <div style={{fontWeight:700,fontSize:15}}>{a.name}</div>
+                      <div style={{fontSize:12,color:'var(--ss-fg-subtle)'}}>{a.industry} · {a.am}</div>
+                    </td>
+                    <td style={{padding:'14px 12px'}}>
+                      <div style={{display:'flex',alignItems:'center',gap:9}}>
+                        <span style={{width:34,height:34,borderRadius:999,flex:'0 0 34px',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:14,color:'#fff',background:RAG[a.band]}}>{a.score}</span>
+                        <span style={{fontSize:12,fontWeight:700,color:RAG[a.band]}}>{RAGLBL[a.band]}</span>
+                      </div>
+                    </td>
+                    <td style={{padding:'14px 12px'}}>
+                      <span style={{display:'inline-flex',alignItems:'center',gap:6,background:SENT_BG[a.sentiment.label],color:SENT_FG[a.sentiment.label],padding:'4px 11px',borderRadius:999,fontSize:12,fontWeight:700}}>{a.sentiment.label} <span style={{fontSize:11}}>{SENT_ARROW[a.sentiment.direction]}</span></span>
+                    </td>
+                    {['payroll','workforce','ee'].map(k=>(
+                      <td key={k} style={{padding:'14px 8px',textAlign:'center'}}>
+                        <span title={modName[k]+': '+RAGLBL[a.modules[k]]} style={{display:'inline-block',width:15,height:15,borderRadius:999,background:RAG[a.modules[k]]}}></span>
+                      </td>
+                    ))}
+                    <td style={{padding:'14px 12px',textAlign:'center',fontWeight:700,color:npsColor(a.nps)}}>{a.nps}</td>
+                    <td style={{padding:'14px 12px',textAlign:'center',fontWeight:600}}>{a.csat.toFixed(1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {rows.length===0 && <div style={{padding:44,textAlign:'center',color:'var(--ss-fg-subtle)'}}>No accounts match these filters.</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- Deep dive ----------
+function DeepDive({acc, timeline, tlFilter, setTlFilter, onBack}){
+  useIcons();
+  const circ = 2*Math.PI*40;
+  const gauge = `${(circ*acc.score/100).toFixed(1)} ${circ.toFixed(1)}`;
+  const chips = ['all', ...timeline.types];
+  return (
+    <div style={{flex:1,overflowY:'auto'}}>
+      <div style={{padding:'22px 34px',background:'var(--ss-darkmatter)'}} className="ss-on-dark">
+        <button onClick={onBack} className="lin" style={{border:'none',background:'transparent',color:'rgba(255,255,255,.8)',cursor:'pointer',display:'flex',alignItems:'center',gap:6,fontSize:13,fontWeight:600,padding:0,marginBottom:16}}><i data-lucide="arrow-left" style={{width:15,height:15}}></i> Back to portfolio</button>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:24,flexWrap:'wrap'}}>
+          <div style={{display:'flex',alignItems:'center',gap:20}}>
+            <div style={{position:'relative',width:92,height:92,flex:'0 0 92px'}}>
+              <svg viewBox="0 0 92 92" style={{width:92,height:92,transform:'rotate(-90deg)'}}>
+                <circle cx="46" cy="46" r="40" fill="none" stroke="rgba(255,255,255,.15)" strokeWidth="8"/>
+                <circle cx="46" cy="46" r="40" fill="none" stroke={RAG[acc.band]} strokeWidth="8" strokeLinecap="round" strokeDasharray={gauge}/>
+              </svg>
+              <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}}>
+                <span style={{fontWeight:800,fontSize:26,lineHeight:1}}>{acc.score}</span>
+                <span style={{fontSize:10,color:'rgba(255,255,255,.65)'}}>/ 100</span>
+              </div>
+            </div>
+            <div>
+              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}>
+                <h1 style={{fontSize:28,margin:0}}>{acc.name}</h1>
+                <span style={{background:RAG[acc.band],color:'#fff',padding:'3px 12px',borderRadius:999,fontSize:12,fontWeight:700}}>{RAGLBL[acc.band]}</span>
+              </div>
+              <div style={{color:'rgba(255,255,255,.72)',fontSize:14}}>{acc.industry} · Managed by {acc.am} · {acc.manager}</div>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:26,alignItems:'center'}}>
+            <Stat label="ARR" value={acc.arr}/>
+            <Stat label="Renewal" value={acc.renewal_date}/>
+            <div>
+              <div style={statLbl}>Champion</div>
+              <div style={{fontWeight:700,fontSize:15,display:'flex',alignItems:'center',gap:6}}>{acc.champion} <span style={{fontSize:11,color:acc.champion_ok?RAG.green:RAG.red}}>{acc.champion_ok?'● engaged':'▲ at-risk'}</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{padding:'24px 34px 40px',display:'grid',gridTemplateColumns:'1fr 1.15fr',gap:24,alignItems:'start'}}>
+        <div style={{display:'flex',flexDirection:'column',gap:24}}>
+          <ActionsCard accountId={acc.id}/>
+          <div style={{...cardStyle,padding:22}}>
+            <h3 style={{fontSize:16,margin:'0 0 4px'}}>Why this score</h3>
+            <p className="ss-caption" style={{margin:'0 0 16px',fontSize:13}}>Contributing signals, most impactful first. Every score is explainable — never a black box.</p>
+            <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              {acc.factors.map((f,i)=>{
+                const pos=f.impact>0;
+                return (
+                  <div key={i} style={{display:'flex',gap:12,alignItems:'flex-start'}}>
+                    <div style={{width:32,height:32,flex:'0 0 32px',borderRadius:8,background:pos?RAGT.green:RAGT.red,color:pos?RAG.green:RAG.red,display:'flex',alignItems:'center',justifyContent:'center'}}><i data-lucide={f.icon} style={{width:16,height:16}}></i></div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+                        <span style={{fontWeight:700,fontSize:14}}>{f.signal}</span>
+                        <span style={{fontWeight:800,fontSize:14,color:pos?RAG.green:RAG.red}}>{(pos?'+':'')+f.impact}</span>
+                      </div>
+                      <div style={{fontSize:13,color:'var(--ss-fg-muted)',lineHeight:1.4}}>{f.detail}</div>
+                      <div style={{marginTop:5,fontSize:10,fontWeight:700,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--ss-fg-subtle)'}}>{f.category} · {f.timing}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div style={{...cardStyle,padding:22}}>
+            <h3 style={{fontSize:16,margin:'0 0 14px'}}>Module usage tiers</h3>
+            <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              {acc.modules.map(m=>(
+                <div key={m.key} style={{display:'flex',alignItems:'center',gap:12}}>
+                  <span style={{width:12,height:12,borderRadius:999,background:RAG[m.rag],flex:'0 0 12px'}}></span>
+                  <div style={{flex:1}}>
+                    <div style={{fontWeight:700,fontSize:14}}>{m.name}</div>
+                    <div style={{fontSize:12,color:'var(--ss-fg-subtle)'}}>{m.nsm}</div>
+                  </div>
+                  <div style={{textAlign:'right'}}>
+                    <div style={{fontWeight:700,fontSize:13,color:RAG[m.rag]}}>{m.tier_label}</div>
+                    <div style={{fontSize:12,color:'var(--ss-fg-muted)'}}>{m.attain} NSM · {m.trend}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div style={{...cardStyle,padding:22}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+            <h3 style={{fontSize:16,margin:0}}>Unified timeline</h3>
+            <span className="ss-caption" style={{fontSize:12}}>Every signal, one feed</span>
+          </div>
+          <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:18}}>
+            {chips.map(c=>{
+              const on=tlFilter===c;
+              return <button key={c} onClick={()=>setTlFilter(c)} className="tchip"
+                style={{cursor:'pointer',border:'1px solid '+(on?'var(--ss-lucid)':'var(--ss-border)'),background:on?'var(--ss-lucid)':'#fff',color:on?'#fff':'var(--ss-fg)',padding:'5px 13px',borderRadius:999,fontSize:12,fontWeight:600}}>{TYPE_LABEL[c]||c}</button>;
+            })}
+          </div>
+          <div style={{position:'relative'}}>
+            {timeline.events.map((e,i)=>{
+              const m=TYPE_ICON[e.type]||{icon:'circle',c:'amber'};
+              return (
+                <div key={i} style={{display:'flex',gap:14,paddingBottom:20,position:'relative'}}>
+                  <div style={{display:'flex',flexDirection:'column',alignItems:'center',flex:'0 0 34px'}}>
+                    <div style={{width:34,height:34,borderRadius:999,background:RAGT[m.c],color:RAG[m.c],display:'flex',alignItems:'center',justifyContent:'center',zIndex:1,border:'2px solid #fff'}}><i data-lucide={m.icon} style={{width:16,height:16}}></i></div>
+                    <div style={{flex:1,width:2,background:'var(--ss-border)',marginTop:2}}></div>
+                  </div>
+                  <div style={{flex:1,paddingTop:2}}>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+                      <span style={{fontWeight:700,fontSize:14}}>{e.title}</span>
+                      <span style={{fontSize:12,color:'var(--ss-fg-subtle)',whiteSpace:'nowrap'}}>{e.date}</span>
+                    </div>
+                    <div style={{fontSize:13,color:'var(--ss-fg-muted)',lineHeight:1.45,marginTop:2}}>{e.detail}</div>
+                    <span style={{display:'inline-block',marginTop:6,fontSize:10,fontWeight:700,letterSpacing:'.04em',textTransform:'uppercase',color:RAG[m.c],background:RAGT[m.c],padding:'2px 8px',borderRadius:999}}>{e.type}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+const Stat = ({label,value}) => <div><div style={statLbl}>{label}</div><div style={{fontWeight:700,fontSize:18,whiteSpace:'nowrap'}}>{value}</div></div>;
+
+// ---------- AI drawer ----------
+// ---------- Top actions (deterministic what-changed + ranked plays, LLM phrasing) ----------
+const CLASS_META = {
+  strategic:  {icon:'flag',         color:'var(--ss-lucid)',    tint:'var(--ss-pale-lucid-tint)', label:'Strategic'},
+  operational:{icon:'activity',     color:RAG.amber,            tint:RAGT.amber,                  label:'Operational'},
+  quick_win:  {icon:'zap',          color:RAG.green,            tint:RAGT.green,                  label:'Quick win'},
+  monitor:    {icon:'eye',          color:'var(--ss-fg-subtle)',tint:'var(--ss-pale-lucid-tint)', label:'Monitor'},
+  upside:     {icon:'trending-up',  color:RAG.green,            tint:RAGT.green,                  label:'Upside'},
+  none:       {icon:'check-circle', color:RAG.green,            tint:RAGT.green,                  label:'Stable'},
+};
+
+function ActionsCard({accountId}){
+  useIcons();
+  // undefined = loading, null = hidden (validation failed upstream), object = data
+  const [data,setData]=useState(undefined);
+
+  useEffect(()=>{
+    let live=true;
+    setData(undefined);
+    fetch(API+`/accounts/${accountId}/actions`)
+      .then(r=> r.status===204 ? null : r.json())
+      .then(d=>{ if(live) setData(d); })
+      .catch(()=>{ if(live) setData(null); });
+    return ()=>{ live=false; };
+  },[accountId]);
+
+  if(data===undefined) return (
+    <div style={{...cardStyle,padding:22}}>
+      <h3 style={{fontSize:16,margin:'0 0 4px'}}>Top actions</h3>
+      <p className="ss-caption" style={{margin:0,fontSize:13}}>Loading…</p>
+    </div>
+  );
+  // Validation failed upstream — hide. "Why this score" below remains the source of truth.
+  if(data===null) return null;
+
+  const {what_changed:wc, summary, actions, source} = data;
+  const deltaColor = wc.score_delta>0?RAG.green:wc.score_delta<0?RAG.red:'var(--ss-fg-subtle)';
+  const deltaArrow = wc.score_delta>0?'▲':wc.score_delta<0?'▼':'▬';
+
+  return (
+    <div style={{...cardStyle,padding:22}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:4}}>
+        <h3 style={{fontSize:16,margin:0}}>Top actions</h3>
+        <span style={{fontSize:10,fontWeight:700,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--ss-fg-subtle)'}}>{source==='llm'?'AI-tailored':'Rule-based'}</span>
+      </div>
+      <p className="ss-caption" style={{margin:'0 0 14px',fontSize:13}}>What changed, and what to do about it — ranked by leverage, capped at three.</p>
+
+      <div style={{display:'flex',alignItems:'center',gap:8,padding:'9px 12px',background:'var(--ss-pale-lucid-tint)',borderRadius:8,marginBottom:summary?12:16}}>
+        <span style={{fontWeight:800,fontSize:13,color:deltaColor}}>{deltaArrow} {wc.score_delta>0?'+':''}{wc.score_delta}</span>
+        <span style={{fontSize:12,color:'var(--ss-fg-muted)'}}>
+          {wc.band_changed ? `moved ${RAGLBL[wc.prev_band]} → ${RAGLBL[wc.band]} since last snapshot` : `since last snapshot · ${wc.direction}`}
+        </span>
+      </div>
+
+      {summary && <p style={{fontSize:13.5,color:'var(--ss-fg)',fontStyle:'italic',lineHeight:1.5,margin:'0 0 16px',paddingLeft:12,borderLeft:'3px solid var(--ss-lucid)'}}>{summary}</p>}
+
+      <div style={{display:'flex',flexDirection:'column',gap:12}}>
+        {actions.map((a,i)=>{
+          const meta = CLASS_META[a.class]||CLASS_META.operational;
+          return (
+            <div key={i} style={{display:'flex',gap:12,alignItems:'flex-start'}}>
+              <div style={{width:32,height:32,flex:'0 0 32px',borderRadius:8,background:meta.tint,color:meta.color,display:'flex',alignItems:'center',justifyContent:'center'}}><i data-lucide={meta.icon} style={{width:16,height:16}}></i></div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+                  <span style={{fontWeight:700,fontSize:14}}>{a.headline}</span>
+                  {a.horizon && <span style={{fontSize:10,fontWeight:700,textTransform:'uppercase',letterSpacing:'.04em',color:meta.color,background:meta.tint,padding:'2px 8px',borderRadius:999,whiteSpace:'nowrap'}}>{a.horizon==='quick'?'This week':'Weeks'}</span>}
+                </div>
+                {a.why_now && <div style={{fontSize:13,color:'var(--ss-fg-muted)',lineHeight:1.4,marginTop:2}}>{a.why_now}</div>}
+                {a.addresses && a.addresses.length>0 && <div style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:6}}>
+                  {a.addresses.map((s,j)=><span key={j} style={{fontSize:10,fontWeight:600,color:'var(--ss-fg-subtle)',background:'var(--ss-bg)',border:'1px solid var(--ss-border)',padding:'2px 8px',borderRadius:999}}>{s}</span>)}
+                </div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Shell ----------
+function Sidebar(){
+  useIcons();
+  const item=(icon,active,dot)=><div style={{width:44,height:44,borderRadius:10,display:'flex',alignItems:'center',justifyContent:'center',position:'relative',background:active?'var(--ss-lucid)':'transparent',color:active?'#fff':'rgba(255,255,255,.55)'}}><i data-lucide={icon} style={{width:20,height:20}}></i>{dot&&<span style={{position:'absolute',top:8,right:10,width:7,height:7,borderRadius:999,background:'var(--ss-pale-orange)'}}></span>}</div>;
+  return (
+    <div style={{width:76,flex:'0 0 76px',background:'var(--ss-darkmatter)',display:'flex',flexDirection:'column',alignItems:'center',padding:'22px 0',gap:10}}>
+      <div style={{width:34,height:34,marginBottom:18,borderRadius:9,background:'var(--ss-lucid)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:900,fontSize:18}}>◆</div>
+      {item('layout-dashboard',true)}
+      {item('users',false)}
+      {item('bell',false,true)}
+      <div style={{flex:1}}></div>
+      {item('settings',false)}
+      <div style={{width:34,height:34,borderRadius:999,background:'var(--ss-lucid-dark)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,fontSize:13}}>PN</div>
+    </div>
+  );
+}
+
+function App(){
+  const [filters,setFilters]=useState({ams:[],managers:[]});
+  const [portfolio,setPortfolio]=useState(null);
+  const [state,setStateRaw]=useState({am:'all',manager:'all',query:'',moduleFilter:null});
+  const setState=p=>setStateRaw(s=>({...s,...p}));
+  const [graphId,setGraphId]=useState(null);
+  const [trendData,setTrendData]=useState(null);
+  const [view,setView]=useState('portfolio');
+  const [acc,setAcc]=useState(null);
+  const [timeline,setTimeline]=useState({events:[],types:[]});
+  const [tlFilter,setTlFilter]=useState('all');
+
+  useEffect(()=>{ get('/filters').then(setFilters); },[]);
+
+  // reload portfolio when am/manager/query change
+  useEffect(()=>{
+    const p=new URLSearchParams();
+    if(state.am!=='all') p.set('am',state.am);
+    if(state.manager!=='all') p.set('manager',state.manager);
+    if(state.query.trim()) p.set('q',state.query.trim());
+    get('/portfolio?'+p.toString()).then(d=>{
+      setPortfolio(d);
+      setGraphId(g=> (g && d.accounts.some(a=>a.id===g)) ? g : (d.accounts[d.accounts.length-1]?.id||null));
+    });
+  },[state.am,state.manager,state.query]);
+
+  // load trend for graph subject
+  useEffect(()=>{
+    if(!graphId){ setTrendData(null); return; }
+    const name=portfolio?.accounts.find(a=>a.id===graphId)?.name||'';
+    get(`/accounts/${graphId}/trend`).then(d=>setTrendData({...d,name}));
+  },[graphId, portfolio]);
+
+  const openAccount=useCallback((id)=>{
+    setGraphId(id); setTlFilter('all');
+    Promise.all([get(`/accounts/${id}`),get(`/accounts/${id}/timeline`)]).then(([a,tl])=>{
+      setAcc(a); setTimeline(tl); setView('account');
+    });
+  },[]);
+
+  // reload timeline on chip change
+  useEffect(()=>{
+    if(view!=='account'||!acc) return;
+    get(`/accounts/${acc.id}/timeline${tlFilter!=='all'?'?type='+tlFilter:''}`).then(setTimeline);
+  },[tlFilter]);
+
+  const trendName = portfolio?.accounts.find(a=>a.id===graphId)?.name || '';
+
+  if(!portfolio) return <div style={{display:'flex',height:'100vh',alignItems:'center',justifyContent:'center',color:'var(--ss-fg-subtle)'}}>Loading…</div>;
+
+  return (
+    <div style={{display:'flex',height:'100vh',width:'100%',overflow:'hidden',background:'var(--ss-bg)'}}>
+      <Sidebar/>
+      <div style={{flex:1,minWidth:0,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+        {view==='portfolio'
+          ? <Portfolio data={portfolio} filters={filters} state={state} setState={setState}
+              trend={{name:trendName,data:trendData}} openAccount={openAccount}/>
+          : acc && <DeepDive acc={acc} timeline={timeline} tlFilter={tlFilter} setTlFilter={setTlFilter}
+              onBack={()=>setView('portfolio')}/>}
+      </div>
+    </div>
+  );
+}
+
+const lblStyle={fontSize:11,fontWeight:600,letterSpacing:'.04em',textTransform:'uppercase',color:'var(--ss-fg-subtle)'};
+const selStyle={fontFamily:'var(--ss-font)',fontSize:14,padding:'9px 12px',border:'1px solid var(--ss-border)',borderRadius:8,background:'#fff',minWidth:190,color:'var(--ss-fg)',fontWeight:500};
+const cardStyle={background:'#fff',border:'1px solid var(--ss-border)',borderRadius:12,padding:'20px 22px',boxShadow:'var(--ss-shadow-sm)'};
+const matHdr={textAlign:'center',fontSize:11,fontWeight:700,letterSpacing:'.04em',textTransform:'uppercase'};
+const statLbl={fontSize:11,color:'rgba(255,255,255,.6)',textTransform:'uppercase',letterSpacing:'.04em',marginBottom:3};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+<script>
+  // Compile the JSX above with the classic runtime (no ESM imports), then run it.
+  (function(){
+    var src = document.getElementById('app-source').textContent;
+    try {
+      var code = Babel.transform(src, {presets:[['react',{runtime:'classic'}]]}).code;
+      var tag = document.createElement('script');
+      tag.textContent = code;
+      document.body.appendChild(tag);
+    } catch (e) {
+      document.getElementById('root').innerHTML =
+        '<div style="padding:40px;font-family:sans-serif;color:#C8453B">App failed to compile: '+e.message+'</div>';
+    }
+  })();
+</script>
+</body>
+</html>
