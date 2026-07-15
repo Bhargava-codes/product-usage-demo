@@ -5,21 +5,65 @@ An internal Account-Manager tool that fuses six disconnected signal streams
 **explainable, near-real-time account-health view** — surfaced early enough to
 act on renewal risk before the renewal call.
 
-This is a runnable personal-project build of the [design & backend plan]. Data
-is stored as **CSV files** (per the project decision); the health score and its
-factor breakdown are **computed by an additive engine**, not hard-coded.
+Data is stored as **CSV files**; the health score and its factor breakdown are
+**computed by an additive engine**, not hard-coded. A cheap LLM sits on top —
+but only to *narrate* and to *select next-actions from a closed playbook*, never
+to compute anything authoritative.
+
+---
+
+## Product decisions (the AI-PM cut)
+
+This project is as much about *where not to use an LLM* as where to use one. The
+decisions that shaped it:
+
+1. **The engine owns the truth; the LLM only narrates it.** The score and its
+   "Why this score" factors are a purely additive, fully-auditable computation.
+   An LLM-written score could never *guarantee* the words match the math, so the
+   model is kept off anything authoritative. Explainability is a hard constraint,
+   not a nice-to-have.
+2. **I cut the free-form chatbot.** The first version had an "ask anything" drawer.
+   It was redundant (the factor panel already explains the score) and risky (a
+   cheap model giving free-form CS advice is trust-eroding). It was replaced by a
+   **deterministic "what changed" diff + a top-3 recommended actions** card — the
+   AM's actual job, not a chat toy.
+3. **Recommended actions are playbook-grounded, not invented.** Actions are
+   selected from a closed CS playbook whose IDs form a **response-schema enum** —
+   so the model is *structurally* unable to emit an off-playbook action. A
+   validator then checks the model cited only real signals; on any failure the
+   section hides and the deterministic factor panel remains.
+4. **The hard judgement is deterministic.** Symptom→cause collapse (e.g. a support
+   defect that's dragging usage *and* NPS down becomes **one** action) and the
+   priority ranking (severity × timing × renewal-proximity × actionability) run in
+   code. The LLM only selects ≤3 and phrases them — a bounded selector, not an
+   author.
+5. **Built to be eval-gated.** The LLM path ships behind a materiality floor,
+   validation, and a hide-on-failure fallback, so it can be trusted only after an
+   eval set measures its grounding and on-playbook rate.
+
+The prompt itself follows Google's documented Gemini guidance (persona +
+constraints in the system instruction, XML-tag delimiters, few-shot examples,
+schema supplied via `response_format` rather than duplicated in the prompt).
+
+---
+
+## Architecture
 
 ```
 ┌── frontend/            no-build React app (served by FastAPI)
-│     index.html         portfolio · deep-dive · AI drawer
+│     index.html         portfolio · account deep-dive · top-actions card
 └── backend/
       app/
-        config.py        scoring weights, bands, NSM defs  ← the model
+        config.py        scoring weights, bands, NSM defs, priority weights ← the model
         data.py          CSV read/write layer (the "DB")
         scoring.py       feature layer + additive scoring engine
-        ai.py            provider-agnostic LLM seam + context assembler
+        insights.py      deterministic what-changed diff + priority ranking + symptom→cause collapse
+        playbook.py      the closed CS playbook (its IDs become the LLM's schema enum)
+        ai.py            provider-agnostic LLM seam + OpenRouter provider + validation
+        api.py           FastAPI read API + /actions endpoint + static frontend
         seed.py          generate sample CSVs + compute snapshots
-        api.py           FastAPI read API + AI endpoint + static frontend
+      prompts/
+        top3_actions.system.md   system prompt (Gemini-tuned, cache-split)
       data/*.csv         generated tables (git-ignored)
 ```
 
@@ -34,20 +78,26 @@ uvicorn app.api:app --port 8077          # then open http://127.0.0.1:8077
 ```
 
 The frontend loads React, Babel, and Lucide from a CDN (no Node/npm needed).
-Install Node later and it ports to Vite cleanly.
 
-## How the score works (P1: never a black box)
+**Optional — turn on the LLM layer:** the top-actions card runs on a deterministic
+playbook by default. Export an OpenRouter key *in the same shell before starting
+the server* and it will additionally generate the one-line summary and tailor the
+action wording (`google/gemini-2.5-flash-lite` by default, set in `config.py`):
+
+```bash
+export OPENROUTER_API_KEY=...            # your key; read from env only, never stored
+```
+
+## How the score works (never a black box)
 
 `score = clamp₀₋₁₀₀(BASELINE + Σ weightᵢ)` — a purely additive model, so the
 factors always reconcile to the number shown. Each feature emits one
-`score_factor` row, which is exactly what the deep-dive's "Why this score"
-panel renders, sorted by absolute impact.
+`score_factor` row, which is exactly what the deep-dive's "Why this score" panel
+renders, sorted by absolute impact.
 
-Bands (P4, one place): green ≥ 80 · amber 55–79 · red < 55.
-Usage tiers (P3, from NSM attainment %): high > 85 · medium 50–85 · low < 50.
-
-Weights live in `app/config.py` as a **versioned v1 rubric** — tune them there;
-a change should bump `MODEL_VERSION`. They are illustrative, not learned.
+Bands (one place): green ≥ 80 · amber 55–79 · red < 55.
+Usage tiers (from NSM attainment %): high > 85 · medium 50–85 · low < 50.
+Weights live in `app/config.py` as a **versioned v1 rubric** — illustrative, not learned.
 
 ## Data model (CSV tables)
 
@@ -64,14 +114,6 @@ a change should bump `MODEL_VERSION`. They are illustrative, not learned.
 append-only immutable snapshots — the month-over-month trend is just a query
 over them.
 
-## Wiring a real LLM (currently abstracted, P6)
-
-The AI drawer ships with a deterministic `CannedProvider` so it works with
-nothing external. To go live, implement `LLMProvider.complete` in `app/ai.py`
-(e.g. an Anthropic adapter reading `ANTHROPIC_API_KEY`) and set `_provider`.
-The route, the server-side context assembler, and the guardrails don't change —
-that seam is what keeps "use ONLY this data, never invent numbers" enforceable.
-
 ## API
 
 | Endpoint | Purpose |
@@ -80,10 +122,11 @@ that seam is what keeps "use ONLY this data, never invent numbers" enforceable.
 | `GET /api/accounts/{id}` | deep-dive: score, factors, module tiers |
 | `GET /api/accounts/{id}/timeline?type=` | unified timeline |
 | `GET /api/accounts/{id}/trend` | month-over-month snapshots |
-| `POST /api/accounts/{id}/ai/messages` | account-scoped AI |
+| `GET /api/accounts/{id}/actions` | what-changed diff + top-3 grounded actions |
 | `GET /api/filters` | AM / manager options |
 
-## Not yet built (see the plan)
+## Not yet built (deliberately)
 
 Real source connectors, the alerts engine, RBAC scoping (stubbed in
-`api._scope`), and Phase-3 ML weight calibration.
+`api._scope`), an eval harness to gate the LLM path, and Phase-3 ML weight
+calibration.
