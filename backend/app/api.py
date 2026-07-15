@@ -8,6 +8,7 @@ marked below.
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
@@ -18,7 +19,18 @@ from . import ai
 from . import config as C
 from . import data as D
 
-app = FastAPI(title="Customer Health Platform")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # On a fresh deploy the git-ignored CSVs don't exist yet — generate & score
+    # the sample data once at startup so the demo works with zero manual steps.
+    if not D.read("accounts"):
+        from . import seed
+        seed.run()
+    yield
+
+
+app = FastAPI(title="Customer Health Platform", lifespan=lifespan)
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend")
 

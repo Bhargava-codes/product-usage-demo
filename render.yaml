@@ -1,0 +1,17 @@
+# Render blueprint — connect this repo on render.com and it auto-configures.
+# Free tier: the service spins down after ~15 min idle and cold-starts in ~30–50s.
+services:
+  - type: web
+    name: customer-health-platform
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.api:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.4"
+      # Optional: set this in the Render dashboard to enable the LLM layer
+      # (the app runs the deterministic playbook path without it).
+      - key: OPENROUTER_API_KEY
+        sync: false

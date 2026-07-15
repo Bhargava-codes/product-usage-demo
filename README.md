@@ -79,6 +79,16 @@ uvicorn app.api:app --port 8077          # then open http://127.0.0.1:8077
 
 The frontend loads React, Babel, and Lucide from a CDN (no Node/npm needed).
 
+## Deploy (one service, free tier)
+
+The repo ships a `render.yaml` blueprint and a `Procfile`. On a fresh deploy the
+app **auto-seeds and scores the sample data on startup** (the CSVs are
+git-ignored), so there are no manual steps. On [Render](https://render.com):
+New → Blueprint → connect this repo → Apply. That's it — the service builds,
+boots, seeds, and serves the full UI. (Free instances cold-start in ~30–50s
+after idle.) Set `OPENROUTER_API_KEY` in the dashboard to also enable the LLM
+layer; without it the deterministic playbook path runs.
+
 **Optional — turn on the LLM layer:** the top-actions card runs on a deterministic
 playbook by default. Export an OpenRouter key *in the same shell before starting
 the server* and it will additionally generate the one-line summary and tailor the
