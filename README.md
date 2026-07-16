@@ -7,7 +7,7 @@ An internal Account-Manager tool that fuses six disconnected signal streams
 act on renewal risk before the renewal call.
 
 Data is stored as **CSV files**; the health score and its factor breakdown are
-**computed by an additive engine**, not hard-coded. A cheap LLM sits on top —
+**computed by an additive engine**, not hard-coded. LLM sits on top —
 but only to *narrate* and to *select next-actions from a closed playbook*, never
 to compute anything authoritative.
 
