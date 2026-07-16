@@ -1,4 +1,5 @@
 # Unified Customer Health Platform
+Prod link - https://product-usage-demo.onrender.com
 
 An internal Account-Manager tool that fuses six disconnected signal streams
 (product usage, support, CRM, surveys, billing, relationship) into one
@@ -22,12 +23,7 @@ decisions that shaped it:
    An LLM-written score could never *guarantee* the words match the math, so the
    model is kept off anything authoritative. Explainability is a hard constraint,
    not a nice-to-have.
-2. **I cut the free-form chatbot.** The first version had an "ask anything" drawer.
-   It was redundant (the factor panel already explains the score) and risky (a
-   cheap model giving free-form CS advice is trust-eroding). It was replaced by a
-   **deterministic "what changed" diff + a top-3 recommended actions** card — the
-   AM's actual job, not a chat toy.
-3. **Recommended actions are playbook-grounded, not invented.** Actions are
+2. **Recommended actions are playbook-grounded, not invented.** Actions are
    selected from a closed CS playbook whose IDs form a **response-schema enum** —
    so the model is *structurally* unable to emit an off-playbook action. A
    validator then checks the model cited only real signals; on any failure the
@@ -98,7 +94,7 @@ action wording (`google/gemini-2.5-flash-lite` by default, set in `config.py`):
 export OPENROUTER_API_KEY=...            # your key; read from env only, never stored
 ```
 
-## How the score works (never a black box)
+## How the score works
 
 `score = clamp₀₋₁₀₀(BASELINE + Σ weightᵢ)` — a purely additive model, so the
 factors always reconcile to the number shown. Each feature emits one
